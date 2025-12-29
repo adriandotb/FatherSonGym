@@ -7,7 +7,7 @@ import { Dumbbell, Activity, History as HistoryIcon, Sparkles, AlertCircle } fro
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.HOME);
-  const [lastWorkoutInput, setLastWorkoutInput] = useState<string>('');
+  const [targetFocus, setTargetFocus] = useState<string>('');
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
   const [history, setHistory] = useState<WorkoutLog[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,8 +26,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleGenerate = async () => {
-    if (!lastWorkoutInput.trim()) {
-      setError("Please tell me what you did last time (or type 'Nothing')");
+    if (!targetFocus.trim()) {
+      setError("Please select a workout type.");
       return;
     }
     
@@ -36,7 +36,7 @@ const App: React.FC = () => {
     setView(AppView.GENERATING);
 
     try {
-      const plan = await generateWorkout(lastWorkoutInput);
+      const plan = await generateWorkout(targetFocus);
       setWorkoutPlan(plan);
       setView(AppView.ACTIVE);
     } catch (e) {
@@ -60,8 +60,7 @@ const App: React.FC = () => {
   const quickSelects = [
     "Arms, Chest, Back",
     "Legs & Abs",
-    "Full Body",
-    "Rest / Nothing"
+    "Full Body"
   ];
 
   if (view === AppView.GENERATING) {
@@ -110,16 +109,16 @@ const App: React.FC = () => {
         {/* Input Card */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-8 border border-slate-100">
           <label className="block text-slate-700 font-bold mb-3 text-lg">
-            What did you work out last?
+            What do you want to work on today?
           </label>
           
           <div className="flex flex-wrap gap-2 mb-4">
             {quickSelects.map(opt => (
               <button
                 key={opt}
-                onClick={() => setLastWorkoutInput(opt)}
+                onClick={() => setTargetFocus(opt)}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                  lastWorkoutInput === opt 
+                  targetFocus === opt 
                   ? 'bg-indigo-100 border-indigo-500 text-indigo-700' 
                   : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                 }`}
@@ -132,9 +131,9 @@ const App: React.FC = () => {
           <div className="relative mb-6">
             <input
               type="text"
-              value={lastWorkoutInput}
-              onChange={(e) => setLastWorkoutInput(e.target.value)}
-              placeholder="e.g. Arms and Back..."
+              value={targetFocus}
+              onChange={(e) => setTargetFocus(e.target.value)}
+              placeholder="Select from above..."
               className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 placeholder:text-slate-400"
             />
           </div>

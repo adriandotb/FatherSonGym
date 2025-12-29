@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { WorkoutPlan, WorkoutLog, CompletedSet } from '../types';
-import { CheckCircle2, Circle, Clock, Info, Save, ChevronLeft, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { WorkoutPlan, WorkoutLog, CompletedSet, Exercise } from '../types';
+import { CheckCircle2, Circle, Clock, Info, Save, ChevronLeft, Image as ImageIcon, Loader2, RefreshCw, X, Filter } from 'lucide-react';
 import { generateExerciseImage } from '../services/geminiService';
+import { EXERCISE_LIBRARY } from '../services/exerciseLibrary';
 
 interface ActiveWorkoutProps {
   plan: WorkoutPlan;
@@ -10,48 +11,43 @@ interface ActiveWorkoutProps {
 }
 
 export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, onComplete, onCancel }) => {
-  // State to track completed sets for each exercise
-  // Structure: { [exerciseIndex]: [ {weight: 0, reps: 0}, ... ] }
+  const [exercises, setExercises] = useState<Exercise[]>(plan.exercises);
   const [tracker, setTracker] = useState<Record<number, CompletedSet[]>>({});
   const [completedCardio, setCompletedCardio] = useState(false);
-  
-  // State for generated images
-  const [exerciseImages, setExerciseImages] = useState<Record<number, string>>({});
-  const [loadingImages, setLoadingImages] = useState<Record<number, boolean>>({});
+  const [exerciseImages, setExerciseImages] = useState<Record<string, string>>({});
+  const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({});
+
+  // Swap Modal State
+  const [swappingIndex, setSwappingIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    // Trigger image generation for each exercise
-    plan.exercises.forEach(async (ex, index) => {
-      if (exerciseImages[index] || loadingImages[index]) return;
+    exercises.forEach(async (ex) => {
+      if (exerciseImages[ex.name] || loadingImages[ex.name]) return;
 
-      setLoadingImages(prev => ({ ...prev, [index]: true }));
+      setLoadingImages(prev => ({ ...prev, [ex.name]: true }));
       try {
         const base64Image = await generateExerciseImage(ex.name);
         if (base64Image) {
-          setExerciseImages(prev => ({ ...prev, [index]: base64Image }));
+          setExerciseImages(prev => ({ ...prev, [ex.name]: base64Image }));
         }
       } catch (err) {
         console.error(`Failed to load image for ${ex.name}`, err);
       } finally {
-        setLoadingImages(prev => ({ ...prev, [index]: false }));
+        setLoadingImages(prev => ({ ...prev, [ex.name]: false }));
       }
     });
-  }, [plan]);
+  }, [exercises]);
 
   const toggleSet = (exerciseIdx: number, setIdx: number, targetReps: string) => {
     setTracker(prev => {
       const currentSets = prev[exerciseIdx] || [];
       const newSets = [...currentSets];
       
-      // Basic logic: If it exists, remove it (toggle off), else add it (toggle on)
-      // For a simple app, we just mark it done.
       if (newSets[setIdx]) {
-        // Remove if clicking again (undo)
         newSets.splice(setIdx, 1);
       } else {
-        // Add "done" state. extracting number from range like "10-12" -> 10 for default
         const repVal = parseInt(targetReps.split('-')[0]) || 10; 
-        newSets[setIdx] = { weight: 0, reps: repVal }; // Defaulting weight to 0 for simplicity now
+        newSets[setIdx] = { weight: 0, reps: repVal }; 
       }
       
       return { ...prev, [exerciseIdx]: newSets };
@@ -68,7 +64,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, onComplete, 
       date: new Date().toISOString(),
       planName: "Daily Workout",
       targetZone: plan.targetZone,
-      exercises: plan.exercises.map((ex, idx) => ({
+      exercises: exercises.map((ex, idx) => ({
         name: ex.name,
         setsCompleted: tracker[idx] || []
       }))
@@ -76,8 +72,68 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, onComplete, 
     onComplete(log);
   };
 
+  const handleSwap = (newExerciseId: string) => {
+    if (swappingIndex === null) return;
+
+    const originalEx = exercises[swappingIndex];
+    const newLibEx = EXERCISE_LIBRARY.find(e => e.id === newExerciseId);
+
+    if (newLibEx) {
+      const newExercise: Exercise = {
+        id: newLibEx.id,
+        name: newLibEx.name,
+        muscleGroup: newLibEx.muscleGroup,
+        equipment: newLibEx.category,
+        sets: originalEx.sets, // Keep same volume
+        reps: originalEx.reps,
+        notes: newLibEx.defaultNotes
+      };
+
+      const updatedExercises = [...exercises];
+      updatedExercises[swappingIndex] = newExercise;
+      
+      setExercises(updatedExercises);
+      
+      // Reset tracker for this slot
+      setTracker(prev => {
+        const newTracker = { ...prev };
+        delete newTracker[swappingIndex];
+        return newTracker;
+      });
+    }
+    setSwappingIndex(null);
+  };
+
+  // Get alternatives grouped by specificTarget or at least sorted
+  const getAlternatives = (currentEx: Exercise) => {
+    if (!currentEx.muscleGroup) return [];
+    
+    // Find library entry for current exercise to know its specific target
+    const currentLibEx = EXERCISE_LIBRARY.find(e => e.id === currentEx.id);
+    const currentTarget = currentLibEx?.specificTarget;
+
+    // Filter by muscle group, exclude self
+    let alts = EXERCISE_LIBRARY.filter(ex => 
+      ex.muscleGroup === currentEx.muscleGroup && ex.id !== currentEx.id
+    );
+    
+    // Sort: put exact target matches at the top
+    if (currentTarget) {
+      alts.sort((a, b) => {
+        if (a.specificTarget === currentTarget && b.specificTarget !== currentTarget) return -1;
+        if (a.specificTarget !== currentTarget && b.specificTarget === currentTarget) return 1;
+        return 0;
+      });
+    }
+
+    return alts;
+  };
+
+  const swappingExercise = swappingIndex !== null ? exercises[swappingIndex] : null;
+  const alternatives = swappingExercise ? getAlternatives(swappingExercise) : [];
+
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-slate-50 relative">
       {/* Header */}
       <div className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-20 shadow-sm flex items-center justify-between">
         <button onClick={onCancel} className="text-slate-500 p-1">
@@ -120,24 +176,36 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, onComplete, 
         <div className="space-y-4">
           <h3 className="font-bold text-slate-700 px-1 uppercase text-sm tracking-wider">Resistance Training</h3>
           
-          {plan.exercises.map((ex, exIdx) => (
-            <div key={exIdx} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          {exercises.map((ex, exIdx) => (
+            <div key={exIdx} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 relative group">
+              
               <div className="flex justify-between items-start mb-2">
-                <h4 className="text-lg font-bold text-slate-800">{ex.name}</h4>
-                <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-md uppercase font-bold">
-                  {ex.equipment}
-                </span>
+                <div className="pr-8">
+                  <h4 className="text-lg font-bold text-slate-800 leading-tight">{ex.name}</h4>
+                  <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-md uppercase font-bold mt-1 inline-block">
+                    {ex.equipment}
+                  </span>
+                </div>
+                
+                {/* Swap Button */}
+                <button 
+                  onClick={() => setSwappingIndex(exIdx)}
+                  className="absolute top-4 right-4 text-slate-400 hover:text-indigo-600 p-1 bg-slate-50 rounded-lg border border-slate-100"
+                  title="Swap Exercise"
+                >
+                  <RefreshCw size={18} />
+                </button>
               </div>
               
               {/* Image Generation Section */}
-              <div className="mt-2 mb-4 w-full h-48 bg-slate-50 rounded-xl flex items-center justify-center overflow-hidden border border-slate-100">
-                  {loadingImages[exIdx] ? (
+              <div className="mt-3 mb-4 w-full h-48 bg-slate-50 rounded-xl flex items-center justify-center overflow-hidden border border-slate-100">
+                  {loadingImages[ex.name] ? (
                       <div className="flex flex-col items-center text-slate-400">
                           <Loader2 className="animate-spin mb-2" />
                           <span className="text-xs font-medium">Creating visual...</span>
                       </div>
-                  ) : exerciseImages[exIdx] ? (
-                      <img src={exerciseImages[exIdx]} alt={ex.name} className="w-full h-full object-contain p-2 mix-blend-multiply" />
+                  ) : exerciseImages[ex.name] ? (
+                      <img src={exerciseImages[ex.name]} alt={ex.name} className="w-full h-full object-contain p-2 mix-blend-multiply" />
                   ) : (
                       <div className="flex flex-col items-center text-slate-300">
                            <ImageIcon size={32} />
@@ -146,8 +214,9 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, onComplete, 
                   )}
               </div>
 
-              <p className="text-sm text-slate-500 mb-4 flex items-center">
-                <Info size={14} className="mr-1 inline" /> {ex.notes}
+              <p className="text-sm text-slate-500 mb-4 flex items-start">
+                <Info size={14} className="mr-2 mt-0.5 flex-shrink-0" /> 
+                <span>{ex.notes}</span>
               </p>
 
               <div className="grid grid-cols-4 gap-2">
@@ -174,6 +243,55 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, onComplete, 
           ))}
         </div>
       </div>
+
+      {/* Swap Modal */}
+      {swappingIndex !== null && swappingExercise && (
+        <div className="absolute inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center">
+          <div className="bg-white w-full sm:w-11/12 max-w-md h-[80vh] sm:h-auto rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
+              <div>
+                <h3 className="font-bold text-lg text-slate-800">Swap {swappingExercise.name}</h3>
+                <p className="text-sm text-slate-500 flex items-center">
+                  <Filter size={12} className="mr-1"/>
+                  {swappingExercise.muscleGroup} Options
+                </p>
+              </div>
+              <button onClick={() => setSwappingIndex(null)} className="p-2 text-slate-400 hover:text-slate-600">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="overflow-y-auto p-2 flex-1 space-y-2">
+              {alternatives.map((alt) => (
+                <button
+                  key={alt.id}
+                  onClick={() => handleSwap(alt.id)}
+                  className="w-full text-left p-4 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-all flex justify-between items-center group"
+                >
+                  <div className="flex-1">
+                    <div className="font-bold text-slate-800 group-hover:text-indigo-700">{alt.name}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-semibold">{alt.category}</span>
+                        {alt.specificTarget && (
+                            <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-semibold">
+                                {alt.specificTarget}
+                            </span>
+                        )}
+                    </div>
+                  </div>
+                  <ChevronLeft className="rotate-180 text-slate-300 group-hover:text-indigo-400" size={20} />
+                </button>
+              ))}
+              {alternatives.length === 0 && (
+                <div className="p-8 text-center text-slate-400">
+                  <p>No other alternatives found for this muscle group in the library.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

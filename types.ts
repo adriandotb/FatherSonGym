@@ -1,9 +1,23 @@
+export type ExerciseCategory = 'Machine' | 'Dumbbell' | 'Barbell' | 'Bodyweight' | 'Cable' | 'Cardio' | 'Smith Machine';
+export type MuscleGroup = 'Chest' | 'Back' | 'Legs' | 'Shoulders' | 'Arms' | 'Core' | 'Full Body' | 'Cardio';
+
+export interface LibraryExercise {
+  id: string;
+  name: string;
+  muscleGroup: MuscleGroup;
+  specificTarget?: string; // e.g. "Upper Chest", "Quads", "Lats"
+  category: ExerciseCategory;
+  defaultNotes: string;
+}
+
 export interface Exercise {
+  id?: string; // Optional for backward compatibility or pure AI gen
   name: string;
   sets: number;
   reps: string;
   equipment: string;
   notes: string;
+  muscleGroup?: string; // Useful for swapping
 }
 
 export interface WorkoutPlan {
